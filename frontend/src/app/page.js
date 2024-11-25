@@ -34,18 +34,38 @@ export default function Home() {
       setError("Please enter a prompt.");
       return;
     }
+
     setError(null);
-    try {
-      setIsLoadingResponse(true);
-      addMessage(prompt, agentTypes.user);
-      const response = await getPromptResponse(prompt);
-      addMessage(response, agentTypes.richieRich);
-      setPrompt("");
+    addMessage(prompt, agentTypes.user);
+    setPrompt("");
+    setIsLoadingResponse(true);
+
+    const partialResponse = [];
+    const eventSource = new EventSource("http://localhost:8081");
+
+    eventSource.onopen = () => {
+      console.log("Connection to stream established");
+    };
+
+    eventSource.onmessage = (event) => {
+      if (event.data === "[DONE]") {
+        eventSource.close();
+        setIsLoadingResponse(false);
+        addMessage(partialResponse.join(" "), agentTypes.richieRich);
+      } else {
+        partialResponse.push(event.data);
+        setMessages((prev) => [
+          ...prev.slice(0, -1), // Remove the last partial response
+          { agent: agentTypes.richieRich, contents: partialResponse.join(" ") },
+        ]);
+      }
+    };
+
+    eventSource.onerror = () => {
+      setError("An error occurred while streaming. Please try again.");
       setIsLoadingResponse(false);
-    } catch (error) {
-      setError("An error occurred. Please try again.");
-      setIsLoadingResponse(false);
-    }
+      eventSource.close();
+    };
   };
 
   useEffect(() => {
@@ -64,7 +84,7 @@ export default function Home() {
             <ChatPrompt key={index} prompt={message.contents} />
           ) : (
             <ChatResponse key={index} response={message.contents} />
-          ),
+          )
         )}
       </div>
       <TextArea
